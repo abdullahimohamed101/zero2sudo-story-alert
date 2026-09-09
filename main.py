@@ -8,11 +8,17 @@ import sys
 from contextlib import closing
 from email.message import EmailMessage
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, unquote, urlparse
+from urllib.request import Request, urlopen
 
 TARGET_USERNAME = os.getenv("TARGET_USERNAME", "zero2sudo").lstrip("@")
 ALERT_EMAIL = os.getenv("ALERT_EMAIL", "itsabdulmohamed101@gmail.com")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").replace(" ", "")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+EMAIL_FROM = os.getenv(
+    "EMAIL_FROM", "Story Alert <onboarding@resend.dev>"
+).strip()
 STORAGE_STATE_B64 = os.getenv("INSTAGRAM_STORAGE_STATE_B64", "")
 SIMULATED_STORY_URL = os.getenv("SIMULATED_STORY_URL", "").strip()
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -170,16 +176,60 @@ def extract_story_links_from_payload(payload, target_username=TARGET_USERNAME):
     return links
 
 
-def send_email(url: str):
+def deliver_email(subject: str, body: str):
+    """Deliver by HTTPS on Railway, with Gmail SMTP as a local/Pro fallback."""
+    if RESEND_API_KEY:
+        payload = json.dumps(
+            {
+                "from": EMAIL_FROM,
+                "to": [ALERT_EMAIL],
+                "subject": subject,
+                "text": body,
+            }
+        ).encode("utf-8")
+        request = Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+                "User-Agent": "zero2sudo-story-alert/1.0",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=20) as response:
+                if response.status not in (200, 201):
+                    raise RuntimeError(
+                        f"Resend returned unexpected HTTP {response.status}."
+                    )
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"Resend rejected the email (HTTP {exc.code}): {detail}"
+            ) from exc
+        return
+
     if not GMAIL_APP_PASSWORD:
-        raise RuntimeError("GMAIL_APP_PASSWORD is missing.")
+        raise RuntimeError(
+            "Email delivery is not configured. Set RESEND_API_KEY on Railway "
+            "or GMAIL_APP_PASSWORD where outbound SMTP is available."
+        )
 
     msg = EmailMessage()
-    msg["Subject"] = f"🚨 New internship link from @{TARGET_USERNAME}"
+    msg["Subject"] = subject
     msg["From"] = ALERT_EMAIL
     msg["To"] = ALERT_EMAIL
+    msg.set_content(body)
 
-    msg.set_content(
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
+        smtp.login(ALERT_EMAIL, GMAIL_APP_PASSWORD)
+        smtp.send_message(msg)
+
+
+def send_email(url: str):
+    deliver_email(
+        f"ðŸš¨ New internship link from @{TARGET_USERNAME}",
         f"""New story link detected from @{TARGET_USERNAME}
 
 APPLY / OPEN:
@@ -189,12 +239,8 @@ Instagram:
 https://www.instagram.com/{TARGET_USERNAME}/
 
 This alert was sent automatically by your Railway story monitor.
-"""
+""",
     )
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
-        smtp.login(ALERT_EMAIL, GMAIL_APP_PASSWORD)
-        smtp.send_message(msg)
 
 
 def email_unseen_links(links):
@@ -216,27 +262,20 @@ def email_unseen_links(links):
 
 def send_session_expired_email():
     """Best-effort notification when Instagram requires login again."""
-    if not GMAIL_APP_PASSWORD:
+    if not RESEND_API_KEY and not GMAIL_APP_PASSWORD:
         return
 
-    msg = EmailMessage()
-    msg["Subject"] = f"⚠️ @{TARGET_USERNAME} monitor needs Instagram login"
-    msg["From"] = ALERT_EMAIL
-    msg["To"] = ALERT_EMAIL
-    msg.set_content(
-        """Your Instagram monitoring session is no longer authenticated.
+    try:
+        deliver_email(
+            f"âš ï¸ @{TARGET_USERNAME} monitor needs Instagram login",
+            """Your Instagram monitoring session is no longer authenticated.
 
 Run export_session.py locally again, replace INSTAGRAM_STORAGE_STATE_B64
 in Railway, and redeploy/restart the service.
 
 The bot did not attempt to bypass Instagram's login challenge.
-"""
-    )
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
-            smtp.login(ALERT_EMAIL, GMAIL_APP_PASSWORD)
-            smtp.send_message(msg)
+""",
+        )
     except Exception:
         pass
 
@@ -486,3 +525,4 @@ if __name__ == "__main__":
     except Exception as exc:
         log(f"[FATAL] {type(exc).__name__}: {exc}")
         sys.exit(1)
+
