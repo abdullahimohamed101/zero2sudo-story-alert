@@ -72,6 +72,25 @@ def test_db_dedupe():
         main.DB_PATH = old_db
 
 
+def test_email_unseen_links_sends_only_once():
+    with tempfile.TemporaryDirectory() as tmp:
+        old_dir = main.DATA_DIR
+        old_db = main.DB_PATH
+        main.DATA_DIR = main.Path(tmp)
+        main.DB_PATH = main.DATA_DIR / "stories.db"
+
+        main.init_db()
+        url = "https://example.com/simulated-story"
+
+        with patch.object(main, "send_email") as mocked_send:
+            assert main.email_unseen_links({url}) == 1
+            assert main.email_unseen_links({url}) == 0
+            mocked_send.assert_called_once_with(url)
+
+        main.DATA_DIR = old_dir
+        main.DB_PATH = old_db
+
+
 if __name__ == "__main__":
     test_redirect_unwrap()
     test_instagram_filtered()
@@ -80,4 +99,5 @@ if __name__ == "__main__":
     test_story_json_link_for_target_account()
     test_story_json_ignores_another_account()
     test_db_dedupe()
+    test_email_unseen_links_sends_only_once()
     print("All offline tests passed.")
