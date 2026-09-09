@@ -20,7 +20,8 @@ It does not bypass login challenges, CAPTCHAs, private-account restrictions, or 
 - GitHub account
 - Railway account
 - Your own Instagram account
-- Gmail account: `itsabdulmohamed101@gmail.com`
+- Email inbox: `itsabdulmohamed101@gmail.com`
+- Resend account and API key for Railway email delivery
 - Python 3.10+ on your computer for one short, one-time Instagram login
 
 Your laptop does **not** run the monitor after setup.
@@ -75,18 +76,22 @@ You can delete `instagram-storage-state.json` after Railway is working.
 
 ---
 
-# PART 2 — Gmail App Password
+# PART 2 — Email API
 
-The bot uses Gmail SMTP to email you.
+Railway disables outbound SMTP on Free, Trial, and Hobby plans, so the deployed
+bot sends email through Resend's HTTPS API.
 
-Do **not** use your normal Gmail password.
+1. Create a Resend account using the same address as `ALERT_EMAIL`.
+2. Create an API key.
+3. Save it as the Railway variable `RESEND_API_KEY`.
 
-For `itsabdulmohamed101@gmail.com`:
+The default sender is `Story Alert <onboarding@resend.dev>`. Resend permits that
+testing sender only when `ALERT_EMAIL` is the address on your Resend account. To
+send elsewhere, verify a domain in Resend and set `EMAIL_FROM` to an address on
+that domain.
 
-1. Turn on Google 2-Step Verification if it is not already enabled.
-2. Create a Google App Password.
-3. Save the 16-character value.
-4. You will add it to Railway as `GMAIL_APP_PASSWORD`.
+`GMAIL_APP_PASSWORD` remains available as a fallback for local runs or Railway
+Pro, where outbound SMTP is available. Do **not** use your normal Gmail password.
 
 ---
 
@@ -123,7 +128,8 @@ Add these Railway variables:
 ```text
 TARGET_USERNAME=zero2sudo
 ALERT_EMAIL=itsabdulmohamed101@gmail.com
-GMAIL_APP_PASSWORD=<your Google App Password>
+RESEND_API_KEY=<your Resend API key>
+EMAIL_FROM=Story Alert <onboarding@resend.dev>
 INSTAGRAM_STORAGE_STATE_B64=<the long value from export_session.py>
 DATA_DIR=/data
 ```
@@ -204,7 +210,7 @@ in Gmail.
 
 ### Simulate a Story email
 
-To test the full deduplication and Gmail delivery path without waiting for a
+To test the full deduplication and email delivery path without waiting for a
 real Story, temporarily add this Railway variable:
 
 ```text
