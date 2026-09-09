@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import tempfile
+import json
 from unittest.mock import patch
 
 import main
@@ -91,6 +92,39 @@ def test_email_unseen_links_sends_only_once():
         main.DB_PATH = old_db
 
 
+def test_resend_delivery_uses_https_api():
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    old_key = main.RESEND_API_KEY
+    old_from = main.EMAIL_FROM
+    main.RESEND_API_KEY = "re_test_key"
+    main.EMAIL_FROM = "Story Alert <onboarding@resend.dev>"
+
+    with patch.object(main, "urlopen", return_value=FakeResponse()) as mocked_open:
+        main.deliver_email("Test subject", "Test body")
+
+    request = mocked_open.call_args.args[0]
+    payload = json.loads(request.data)
+    assert request.full_url == "https://api.resend.com/emails"
+    assert request.headers["Authorization"] == "Bearer re_test_key"
+    assert payload == {
+        "from": "Story Alert <onboarding@resend.dev>",
+        "to": [main.ALERT_EMAIL],
+        "subject": "Test subject",
+        "text": "Test body",
+    }
+
+    main.RESEND_API_KEY = old_key
+    main.EMAIL_FROM = old_from
+
+
 if __name__ == "__main__":
     test_redirect_unwrap()
     test_instagram_filtered()
@@ -100,4 +134,6 @@ if __name__ == "__main__":
     test_story_json_ignores_another_account()
     test_db_dedupe()
     test_email_unseen_links_sends_only_once()
+    test_resend_delivery_uses_https_api()
     print("All offline tests passed.")
+
