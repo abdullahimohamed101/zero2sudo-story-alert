@@ -20,6 +20,41 @@ def test_direct_external():
         "https://boards.greenhouse.io/example/jobs/123"
 
 
+def test_html_escaped_url():
+    assert main.normalize_external_url("https://example.com/job?a=1&amp;b=2") == \
+        "https://example.com/job?a=1&b=2"
+
+
+def test_story_json_link_for_target_account():
+    payload = {
+        "data": {
+            "reels_media": [{
+                "user": {"username": "zero2sudo"},
+                "items": [{
+                    "story_link_stickers": [{
+                        "story_link": {
+                            "link_url": "https://jobs.example.com/apply/123"
+                        }
+                    }]
+                }],
+            }]
+        }
+    }
+
+    assert main.extract_story_links_from_payload(payload) == {
+        "https://jobs.example.com/apply/123"
+    }
+
+
+def test_story_json_ignores_another_account():
+    payload = {
+        "user": {"username": "someone_else"},
+        "story_link": {"link_url": "https://example.com/not-the-target"},
+    }
+
+    assert main.extract_story_links_from_payload(payload) == set()
+
+
 def test_db_dedupe():
     with tempfile.TemporaryDirectory() as tmp:
         old_dir = main.DATA_DIR
@@ -41,5 +76,8 @@ if __name__ == "__main__":
     test_redirect_unwrap()
     test_instagram_filtered()
     test_direct_external()
+    test_html_escaped_url()
+    test_story_json_link_for_target_account()
+    test_story_json_ignores_another_account()
     test_db_dedupe()
     print("All offline tests passed.")
