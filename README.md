@@ -182,16 +182,16 @@ Run/deploy the service manually once before relying on the cron.
 Healthy logs look like:
 
 ```text
-[→] Checking @zero2sudo
-[✓] Scan complete. New links emailed: 0
+[->] Checking @zero2sudo
+[OK] Scan complete. New links emailed: 0
 ```
 
 When a new external Story link exists:
 
 ```text
 [NEW] https://company.com/jobs/...
-[✓] Email sent: https://company.com/jobs/...
-[✓] Scan complete. New links emailed: 1
+[OK] Email sent: https://company.com/jobs/...
+[OK] Scan complete. New links emailed: 1
 ```
 
 You should receive:
@@ -201,6 +201,27 @@ You should receive:
 ```
 
 in Gmail.
+
+### Simulate a Story email
+
+To test the full deduplication and Gmail delivery path without waiting for a
+real Story, temporarily add this Railway variable:
+
+```text
+SIMULATED_STORY_URL=https://example.com/story-email-test-1
+```
+
+Redeploy or manually run the service. The first run sends one test email and
+logs:
+
+```text
+[TEST] Simulating Story link: https://example.com/story-email-test-1
+[TEST] Simulated Story emails sent: 1
+```
+
+Later runs use the database to suppress that same URL while continuing the real
+Instagram scan. Change the final test number to send another test, or remove the
+variable when finished.
 
 ---
 

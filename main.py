@@ -10,13 +10,11 @@ from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-
-
 TARGET_USERNAME = os.getenv("TARGET_USERNAME", "zero2sudo").lstrip("@")
 ALERT_EMAIL = os.getenv("ALERT_EMAIL", "itsabdulmohamed101@gmail.com")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").replace(" ", "")
 STORAGE_STATE_B64 = os.getenv("INSTAGRAM_STORAGE_STATE_B64", "")
+SIMULATED_STORY_URL = os.getenv("SIMULATED_STORY_URL", "").strip()
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DB_PATH = DATA_DIR / "stories.db"
 
@@ -199,6 +197,23 @@ This alert was sent automatically by your Railway story monitor.
         smtp.send_message(msg)
 
 
+def email_unseen_links(links):
+    """Email normalized links once, marking each one seen only after delivery."""
+    sent = 0
+
+    for url in links:
+        if already_seen(url):
+            continue
+
+        log(f"[NEW] {url}")
+        send_email(url)
+        mark_seen(url)
+        sent += 1
+        log(f"[OK] Email sent: {url}")
+
+    return sent
+
+
 def send_session_expired_email():
     """Best-effort notification when Instagram requires login again."""
     if not GMAIL_APP_PASSWORD:
@@ -333,7 +348,30 @@ def looks_logged_out(page) -> bool:
 
 
 def scan_once():
+    from playwright.sync_api import sync_playwright
+
     init_db()
+    simulated_links = set()
+    simulated_emails = 0
+
+    if SIMULATED_STORY_URL:
+        simulated_url = normalize_external_url(SIMULATED_STORY_URL)
+        if not simulated_url:
+            raise RuntimeError(
+                "SIMULATED_STORY_URL must be a valid external http(s) URL."
+            )
+
+        log(f"[TEST] Simulating Story link: {simulated_url}")
+        simulated_payload = {
+            "user": {"username": TARGET_USERNAME},
+            "story_link_stickers": [
+                {"story_link": {"link_url": simulated_url}}
+            ],
+        }
+        simulated_links = extract_story_links_from_payload(simulated_payload)
+        simulated_emails = email_unseen_links(simulated_links)
+        log(f"[TEST] Simulated Story emails sent: {simulated_emails}")
+
     storage_state = decode_storage_state()
 
     story_url = f"https://www.instagram.com/stories/{TARGET_USERNAME}/"
@@ -377,7 +415,7 @@ def scan_once():
         page.on("response", capture_story_response)
 
         try:
-            log(f"[→] Checking @{TARGET_USERNAME}")
+            log(f"[->] Checking @{TARGET_USERNAME}")
             page.goto(story_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(3500)
 
@@ -403,7 +441,7 @@ def scan_once():
 
             processed_fingerprints = set()
             observed_links = set()
-            new_links = 0
+            new_links = simulated_emails
 
             # Safety cap prevents getting stuck if Instagram changes its controls.
             for _ in range(30):
@@ -418,17 +456,7 @@ def scan_once():
                 links = extract_external_links(page, captured_story_links)
                 observed_links.update(links)
 
-                for url in links:
-                    if already_seen(url):
-                        continue
-
-                    log(f"[NEW] {url}")
-
-                    # Only mark it seen after Gmail accepts the message.
-                    send_email(url)
-                    mark_seen(url)
-                    new_links += 1
-                    log(f"[✓] Email sent: {url}")
+                new_links += email_unseen_links(links)
 
                 if not click_next_story(page):
                     break
@@ -444,7 +472,7 @@ def scan_once():
                     f"external links found: {len(observed_links)}"
                 )
 
-            log(f"[✓] Scan complete. New links emailed: {new_links}")
+            log(f"[OK] Scan complete. New links emailed: {new_links}")
             return 0
 
         finally:
